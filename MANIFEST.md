@@ -105,6 +105,7 @@ open-loop arrivals.
 | 8B **fixed arm (backport) @ KV saturation** | `fixed8b_remote` | 12 | 0/10/20/40% | 100 (calib 60) | same scheme |
 | 8B **fixed arm (official main @ f9fca05) @ KV saturation** | `main8b_remote` | 12 | 0/10/20/40% | 100 (calib 60) | same scheme |
 | 8B **vLLM 0.28.0 healthy baseline @ KV saturation** | `vllm8b_remote` | 12 | 0/10/20/40% | 100 (calib 60) | same scheme |
+| 8B **harm-surface matrix** (broken & fixed arms × r=4/8/12/16, r=12 has 3 total reps incl. round-2 data) | `surface8b/{arm}_r{rate}_rep{N}` | 4/8/12/16 (single-rate calib → knee=rate) | 0/10/20/40% | 100 (calib 60) | same scheme |
 | mechanism verification (0.6B) | `mechanism_remote` | 2 | 50% | 16 | 777 |
 | phase-1 direct (0.6B) | `phase1_remote` | serial | 100% | per matrix | see `run_phase1_direct.py` |
 | mixed stress (0.6B) | `stress_remote` | 0.5/1.0 | 0/5/10/20% | 40 | 1001-1008 |
