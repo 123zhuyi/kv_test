@@ -17,6 +17,8 @@ cancellation, Qwen3-8B / RTX 5090).
 | component | version |
 |---|---|
 | sglang | 0.5.19 (latest release as of 2026-09-13; contains the cancellation bug) |
+| sglang main (official-main arm) | commit `f9fca0580340a0c3ff4d5a3fc78f03a7a60de3ca` |
+| vllm (healthy-baseline arm) | 0.28.0 (separate venv `.venv-vllm`, 195 packages, freeze in `freeze_vllm8b_remote.tar.gz` → `vllm_env_freeze.txt`) |
 | torch | 2.13.0+cu130 |
 | sglang-kernel | 0.4.6.post1 |
 | triton | 3.7.1 |
@@ -48,6 +50,31 @@ nvcc must be on PATH (see `code/remote_sglang_capacity.sh`). With 8B bf16 at
 (KV-limited concurrency ≈ 41 requests @ ~550 tokens each) — this is the
 KV-pressure condition of the decisive A/B.
 
+### vLLM healthy-baseline arm (different flags, same GPU memory fraction)
+
+```bash
+VLLM_USE_FLASHINFER_SAMPLER=0 \
+python -m vllm.entrypoints.openai.api_server \
+  --model <MODEL_DIR> --host 127.0.0.1 --port 18000 \
+  --trust-remote-code \
+  --gpu-memory-utilization 0.60 \
+  --max-model-len 8192 \
+  --enforce-eager
+```
+
+Notes: `VLLM_USE_FLASHINFER_SAMPLER=0` is required on RTX 5090 — the bundled
+flashinfer JIT `check_cuda_arch` rejects sm120 during sampler warmup
+("FlashInfer requires GPUs with sm75 or higher"); this also matches the SGLang
+arm's `--sampling-backend pytorch`. `--max-model-len 8192` because vLLM refuses
+to start when one max-length request cannot fit the KV pool (40960 needs
+5.62 GiB > 2.98 GiB available at util 0.60). vLLM reports
+**GPU KV cache size: 21,696 tokens** — within 5% of SGLang's 22,720, i.e. the
+two runtimes were compared at essentially equal KV capacity. vLLM admits
+without an admission queue (Waiting always 0, preemption-based; KV usage peak
+94.5%, Running peak 60, generation throughput peak 3874 tok/s), so absolute
+latency levels differ from SGLang's queueing policy — the comparison is the
+cancel-rate trend, not absolute ms.
+
 ## 5. Broken / Fixed Code Construction
 
 Both arms are the same 0.5.19 wheel with trace instrumentation; only the
@@ -77,6 +104,7 @@ open-loop arrivals.
 | 8B round 2, **broken arm @ KV saturation** | `capacity8b2_remote` | 2/4/8/12 | 0/10/20/40% @ r=12 | 100 (calib 60) | same scheme |
 | 8B **fixed arm (backport) @ KV saturation** | `fixed8b_remote` | 12 | 0/10/20/40% | 100 (calib 60) | same scheme |
 | 8B **fixed arm (official main @ f9fca05) @ KV saturation** | `main8b_remote` | 12 | 0/10/20/40% | 100 (calib 60) | same scheme |
+| 8B **vLLM 0.28.0 healthy baseline @ KV saturation** | `vllm8b_remote` | 12 | 0/10/20/40% | 100 (calib 60) | same scheme |
 | mechanism verification (0.6B) | `mechanism_remote` | 2 | 50% | 16 | 777 |
 | phase-1 direct (0.6B) | `phase1_remote` | serial | 100% | per matrix | see `run_phase1_direct.py` |
 | mixed stress (0.6B) | `stress_remote` | 0.5/1.0 | 0/5/10/20% | 40 | 1001-1008 |

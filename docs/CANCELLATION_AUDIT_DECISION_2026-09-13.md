@@ -26,17 +26,23 @@ Setup: SGLang, 8B bf16, `--mem-fraction-static 0.60` → max_total_num_tokens=22
 | c00 | broken | 56.1 | 6015 | 6102 | 16663 | 24.8 |
 | c00 | fixed (backport) | 53.6 | 5549 | 5656 | 15867 | 24.0 |
 | c00 | fixed (official main) | 53.3 | 5256 | 5321 | 15426 | 23.7 |
+| c00 | vLLM 0.28.0 (healthy baseline) | 58.0 | 629 | 899 | 9715 | 17.9 |
 | c10 | broken | 57.7 | 6406 | 6554 | 17360 | 24.1 |
 | c10 | fixed (backport) | 54.6 | 5672 | 5790 | 15920 | 22.8 |
 | c10 | fixed (official main) | 54.3 | 5440 | 5577 | 15561 | 22.4 |
+| c10 | vLLM 0.28.0 (healthy baseline) | 53.0 | 74.2 | 1188 | 9888 | 17.3 |
 | c20 | broken | 57.4 | 6023 | 6078 | 16995 | 25.1 |
 | c20 | fixed (backport) | 52.1 | 4255 | 4314 | 14104 | 23.2 |
 | c20 | fixed (official main) | 51.6 | 4044 | 4172 | 13717 | 22.8 |
+| c20 | vLLM 0.28.0 (healthy baseline) | 52.9 | 74.1 | 82.9 | 8832 | 17.6 |
 | c40 | broken | 57.5 | 6818 | 6972 | 17609 | 24.1 |
 | c40 | fixed (backport) | 51.8 | **59.8** | 62.9 | 11517 | 17.0 |
 | c40 | fixed (official main) | 50.7 | **60.3** | 61.7 | 11105 | 16.9 |
+| c40 | vLLM 0.28.0 (healthy baseline) | 52.5 | **64.7** | 66.2 | 8773 | 15.4 |
 
 Fixed-arm lifecycle (70 cancelled requests each): backport post-cancel iterations mean 0.94 (max 2), cancel-to-KV-release p50 = 30.6 ms, p99 = 75.8 ms; official main post-cancel iterations mean 0.99 (max 2), cancel-to-KV-release p50 = 30.6 ms, p99 = 51.2 ms. **Official main (commit f9fca05) matches the backport within run-to-run noise on every metric** — upstream's fix empirically validates our diagnosis. c00 sanity: all three arms match (same total work).
+
+**vLLM healthy-baseline arm (2026-09-13, run 3):** vLLM 0.28.0 under the identical harness and KV-bound regime (KV pool 21,696 tokens vs SGLang's 22,720 — within 5%; KV usage peak 94.5%, Running peak 60, decode throughput peak 3874 tok/s). vLLM shows the healthy signature: TTFT p95 *improves* with cancel rate (629 ms c00 → 64.7 ms c40) because freed KV relieves pressure, and its c40 TTFT p95 (**64.7 ms**) matches the two fixed SGLang arms (59.8/60.3 ms) — 105× better than broken SGLang (6818 ms). Cancelled-request lifecycle: 70/70 complete, **0 post-cancel decode iterations** (abort lands before the next step), cancel-to-KV-release p50 = 9.0 ms, p99 = 13.1 ms. Two cross-runtime caveats: (1) vLLM admits without an admission queue (preemption-based; Waiting always 0), so its absolute TTFT/E2E levels are lower than SGLang's queueing policy at every cancel rate — the comparison is the cancel-rate trend and the c40 gap, not absolute ms; (2) attention/sampler backends differ (flash-attn vs triton on sm120). Both fixed SGLang arms reproduce the healthy-runtime signature; the broken release does not.
 
 Interpretation:
 
@@ -66,7 +72,7 @@ Upstream: bug present in latest release 0.5.19; fixed on main by PR #35255 (merg
 
 ## Remaining Work for a Paper
 
-1. **vLLM A/B under the same KV-bound workload** (decision doc step 2, still open): confirms the harm is a cancellation-propagation property, not SGLang-fix-specific. vLLM direct is known-good at low load; the KV-bound stress is the real test.
+1. ~~**vLLM A/B under the same KV-bound workload**~~ — done (2026-09-13): vLLM 0.28.0 shows the healthy signature (TTFT p95 629→64.7 ms as cancel rate rises; cancel-to-KV p50 9 ms, 0 post-cancel iterations), matching both fixed SGLang arms at c40. The harm is a cancellation-propagation property, not SGLang-fix-specific.
 2. Harm surface mapping: cancel rate × KV pressure × model size — one figure ("when does cancellation propagation matter"), with repeated cells for variance.
 3. ~~Verify official main~~ — done (2026-09-13): main @ f9fca05 matches the backport on all metrics; "upstream fix validates our diagnosis" is now empirically supported.
 4. Write-up assets already in hand: methodology (FIN/RST probe + 8-event trace hooks + lifecycle merge), root-cause case study with OBSERVED event chains, A/B table above.
@@ -76,6 +82,7 @@ Upstream: bug present in latest release 0.5.19; fixed on main by PR #35255 (merg
 - `results/capacity8b_remote/` — 8B round 1 (unsaturated, r≤4).
 - `results/capacity8b2_remote/` — 8B round 2, broken side @ KV saturation (the broken A/B arm).
 - `results/fixed8b_remote/` — fixed side A/B arm + lifecycle analysis.
+- `results/vllm8b_remote/` — vLLM 0.28.0 healthy-baseline arm + lifecycle analysis + vllm env freeze.
 - `results/capacity_remote_run1/`, `capacity_remote_run2/` — 0.6B sweeps (harm killed there).
 - `results/mechanism_remote/` — root-cause verification traces.
 - `instrument_sglang_0519.py`, `instrument_sglang_fixed.py` — trace hooks for broken/fixed code; PR backport lives on the remote (`/tmp/prtest/`, live files + `.live_broken_backup` for revert).
