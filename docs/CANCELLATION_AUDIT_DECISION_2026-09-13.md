@@ -18,20 +18,25 @@
 Setup: SGLang, 8B bf16, `--mem-fraction-static 0.60` → max_total_num_tokens=22720 (KV-limited concurrency ≈ 41 requests). r=12/s, 100 requests/case, max_tokens=512, FIN after 8 SSE events, cancel rate sweep. Server saturated: #queue-req peak 44-48, token usage 1.00. Two sides, identical harness and seeds:
 
 - **broken** = SGLang 0.5.19 (latest release, contains the bug)
-- **fixed** = same wheel + PR #35255 backport (10/12 hunks clean, 1 hand-applied, 1 already present) + identical trace hooks
+- **fixed (backport)** = same wheel + PR #35255 backport (10/12 hunks clean, 1 hand-applied, 1 already present) + identical trace hooks
+- **fixed (official main)** = upstream main @ `f9fca0580340a0c3ff4d5a3fc78f03a7a60de3ca`, installed with `pip install --no-deps --target` (shadows the venv via PYTHONPATH, reusing its sgl-kernel/torch) + identical trace hooks
 
 | case | side | TTFT p50 | TTFT p95 | TTFT p99 | E2E p95 | wall |
 |---|---|---:|---:|---:|---:|---:|
 | c00 | broken | 56.1 | 6015 | 6102 | 16663 | 24.8 |
-| c00 | fixed | 53.6 | 5549 | 5656 | 15867 | 24.0 |
+| c00 | fixed (backport) | 53.6 | 5549 | 5656 | 15867 | 24.0 |
+| c00 | fixed (official main) | 53.3 | 5256 | 5321 | 15426 | 23.7 |
 | c10 | broken | 57.7 | 6406 | 6554 | 17360 | 24.1 |
-| c10 | fixed | 54.6 | 5672 | 5790 | 15920 | 22.8 |
+| c10 | fixed (backport) | 54.6 | 5672 | 5790 | 15920 | 22.8 |
+| c10 | fixed (official main) | 54.3 | 5440 | 5577 | 15561 | 22.4 |
 | c20 | broken | 57.4 | 6023 | 6078 | 16995 | 25.1 |
-| c20 | fixed | 52.1 | **4255** | 4314 | 14104 | 23.2 |
-| c40 | broken | 57.5 | **6818** | 6972 | 17609 | 24.1 |
-| c40 | fixed | 51.8 | **59.8** | 62.9 | 11517 | 17.0 |
+| c20 | fixed (backport) | 52.1 | 4255 | 4314 | 14104 | 23.2 |
+| c20 | fixed (official main) | 51.6 | 4044 | 4172 | 13717 | 22.8 |
+| c40 | broken | 57.5 | 6818 | 6972 | 17609 | 24.1 |
+| c40 | fixed (backport) | 51.8 | **59.8** | 62.9 | 11517 | 17.0 |
+| c40 | fixed (official main) | 50.7 | **60.3** | 61.7 | 11105 | 16.9 |
 
-Fixed-side lifecycle (70 cancelled requests): post-cancel scheduler iterations mean 0.94 (max 2); cancel-to-KV-release **p50 = 30.6 ms, p99 = 75.8 ms** (broken side: ~8.3-11 s, i.e., full generation). c00 sanity: both sides match (same total work).
+Fixed-arm lifecycle (70 cancelled requests each): backport post-cancel iterations mean 0.94 (max 2), cancel-to-KV-release p50 = 30.6 ms, p99 = 75.8 ms; official main post-cancel iterations mean 0.99 (max 2), cancel-to-KV-release p50 = 30.6 ms, p99 = 51.2 ms. **Official main (commit f9fca05) matches the backport within run-to-run noise on every metric** — upstream's fix empirically validates our diagnosis. c00 sanity: all three arms match (same total work).
 
 Interpretation:
 
@@ -62,8 +67,8 @@ Upstream: bug present in latest release 0.5.19; fixed on main by PR #35255 (merg
 ## Remaining Work for a Paper
 
 1. **vLLM A/B under the same KV-bound workload** (decision doc step 2, still open): confirms the harm is a cancellation-propagation property, not SGLang-fix-specific. vLLM direct is known-good at low load; the KV-bound stress is the real test.
-2. Harm surface mapping: cancel rate × KV pressure × model size — one figure ("when does cancellation propagation matter").
-3. Optional: report/validate against official main nightly rather than our backport for the final numbers.
+2. Harm surface mapping: cancel rate × KV pressure × model size — one figure ("when does cancellation propagation matter"), with repeated cells for variance.
+3. ~~Verify official main~~ — done (2026-09-13): main @ f9fca05 matches the backport on all metrics; "upstream fix validates our diagnosis" is now empirically supported.
 4. Write-up assets already in hand: methodology (FIN/RST probe + 8-event trace hooks + lifecycle merge), root-cause case study with OBSERVED event chains, A/B table above.
 
 ## Artifacts

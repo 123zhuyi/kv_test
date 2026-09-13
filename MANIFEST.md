@@ -56,7 +56,7 @@ cancellation-path code differs:
 - **pristine**: `code_state/tokenizer_manager.py.PRISTINE_0519`, `scheduler.py.PRISTINE_0519`, `common.py.PRISTINE_0519`
 - **broken arm** = pristine + `code/instrument_sglang_0519.py` hooks (live copy: `*.live_broken_backup`)
 - **fixed arm** = pristine + PR [#35255](https://github.com/sgl-project/sglang/pull/35255) backport (`code_state/pr35255.diff`; 10/12 hunks applied cleanly by `patch`, `_mark_state_dispatched` def hand-applied by `code/instrument_sglang_fixed.py`, one hunk already present) + fixed-code trace hooks. Patched-but-uninstrumented reference: `code_state/prtest_patched/` and `*.PRISTINE_plus_PR35255`.
-- Upstream main at audit time: `code_state/tm_main.py` (contains the official fix).
+- Upstream main at audit time: `code_state/tm_main.py`; official-main arm installed from `git+https://github.com/sgl-project/sglang.git@f9fca0580340a0c3ff4d5a3fc78f03a7a60de3ca#subdirectory=python` with `--no-deps --target` (PYTHONPATH shadowing); instrumented copy in `freeze_2026-09-13/sglang_main_pkg_instrumented.tar.gz`.
 - Per-run instrumentation diffs: each results tarball contains `provenance/*.diff`.
 
 ## 6. Workload / Harness Parameters
@@ -75,7 +75,8 @@ open-loop arrivals.
 | 0.6B capacity run 2 | `capacity_remote2` | 4/8/16/32 | 0/10/20/40% | 100 (calib 60) | same scheme |
 | 8B round 1 (unsaturated) | `capacity8b_remote` | 0.5/1/2/4 | 0/10/20/40% | 80 (calib 60) | same scheme |
 | 8B round 2, **broken arm @ KV saturation** | `capacity8b2_remote` | 2/4/8/12 | 0/10/20/40% @ r=12 | 100 (calib 60) | same scheme |
-| 8B **fixed arm @ KV saturation** | `fixed8b_remote` | 12 | 0/10/20/40% | 100 (calib 60) | same scheme |
+| 8B **fixed arm (backport) @ KV saturation** | `fixed8b_remote` | 12 | 0/10/20/40% | 100 (calib 60) | same scheme |
+| 8B **fixed arm (official main @ f9fca05) @ KV saturation** | `main8b_remote` | 12 | 0/10/20/40% | 100 (calib 60) | same scheme |
 | mechanism verification (0.6B) | `mechanism_remote` | 2 | 50% | 16 | 777 |
 | phase-1 direct (0.6B) | `phase1_remote` | serial | 100% | per matrix | see `run_phase1_direct.py` |
 | mixed stress (0.6B) | `stress_remote` | 0.5/1.0 | 0/5/10/20% | 40 | 1001-1008 |

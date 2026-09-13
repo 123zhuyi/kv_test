@@ -8,3 +8,5 @@ b8475dbaa6667a6bd12d78d3320b1f2d16ddf1808684481251d28f3ee7911977  /root/autodl-t
 c6bdd44997a024f5d0d8fdd87dac8a23136f5bcfaef9c80f317c06c88348b599  /root/autodl-tmp/cancel-audit/freeze_2026-09-13/results_mechanism_remote.tar.gz
 fb64a461f6cd0b75160e89786ce74b525e939559c5b21d4d110dd1e4b39c5700  /root/autodl-tmp/cancel-audit/freeze_2026-09-13/results_phase1_remote.tar.gz
 5a3846ee5f61f232eba2a264631edb7187868aa36fab7478d43aba458b57346a  /root/autodl-tmp/cancel-audit/freeze_2026-09-13/results_stress_remote.tar.gz
+05cb614f3ac87ce7b7474fba17497f971f5a2125247be322f3950aa43fa1ea65  /root/autodl-tmp/cancel-audit/freeze_2026-09-13/results_main8b_remote.tar.gz
+8ee0aa0ddbd5b1568eb5941792ae07aa2ebca269870243cebd7f9847458fa111  /root/autodl-tmp/cancel-audit/freeze_2026-09-13/sglang_main_pkg_instrumented.tar.gz
