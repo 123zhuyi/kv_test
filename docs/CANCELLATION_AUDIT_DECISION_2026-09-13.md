@@ -50,6 +50,27 @@ Interpretation:
 - The c00 match confirms the difference is the cancellation path, not run-to-run drift.
 - Harm mechanism is **capacity loss** (KV slots + decode step rows), invisible on small models (0.6B run: flat even at batch 100, KV 29%) because decode there is overhead-bound and admission is never reached.
 
+## Harm Surface (2026-09-14, matrix run + local analysis)
+
+Matrix: broken/fixed arms × r ∈ {4, 8, 12, 16} req/s × cancel {0/10/20/40%}, 100 req/case, r=12 has 3 reps/arm (rep 1 = the original A/B above). Driver: `remote_harm_surface.sh` (single-rate calibration pins the main sweep at each rate). Measured pressure per rate (from server logs): r=4 queue 0, KV ≤ 0.65 (unsaturated); r=8 queue forms (≤ 41); r=12 KV 1.00, queue ~48; r=16 queue ~51. Figure: `results/harm_surface_8b.png/.pdf`; tidy data: `results/harm_surface_8b.csv` (52 rows, per-case pressure indicators included).
+
+Survivor TTFT-p95 gap (broken ÷ fixed, mean of reps):
+
+| rate | c00 | c10 | c20 | c40 |
+|---|---:|---:|---:|---:|
+| r=4 (unsaturated) | 0.98× | 1.01× | 0.95× | 1.05× |
+| r=8 (knee) | 0.82× | 1.04× | **41×** | **71×** |
+| r=12 (saturated) | 1.02× | 1.09× | 1.33× | **108×** |
+| r=16 (overloaded) | 1.03× | 1.07× | 1.18× | **121×** |
+
+Findings:
+
+1. **Threshold structure**: no harm anywhere below KV saturation (r=4 flat at ~60 ms both arms, all cancel rates); harm ignites only once a queue exists, and grows superlinearly with cancel rate (r=12: 1.33× at c20 → 108× at c40).
+2. **Load-shedding cliff in the fixed arm**: at r≥8 the fixed runtime's TTFT p95 *collapses* to ~60 ms once the cancel rate sheds enough offered load to drop below saturation (r=8: cliff at c20; r=12/16: cliff at c40). The broken runtime cannot shed — orphans hold KV slots to natural completion — and stays saturated at every cancel rate. Cancellation, when propagated, acts as free admission control; when broken, it acts as nothing.
+3. **c00/c10 sanity everywhere**: ratios ≈ 1× (0.82–1.33) — the arms diverge only where cancellation should free capacity.
+4. **Reproducibility**: r=12 c40 over 3 reps — broken 6818/6223/6579 ms (CV ≈ 4.5%), fixed 59.8/61.1/60.5 ms; the gap is two orders of magnitude above run-to-run noise.
+5. vLLM baseline (r=12, dotted in the figure) tracks the fixed arm's cliff shape (629→65 ms), confirming the cliff is the healthy signature, not a patch artifact.
+
 ## Prior rounds (unchanged conclusions)
 
 - 0.6B/5090 capacity-loss sweeps (r up to 32/s, batch 100, KV 29%): TTFT/E2E flat — killed the naive within-runtime harm claim.
@@ -73,9 +94,10 @@ Upstream: bug present in latest release 0.5.19; fixed on main by PR #35255 (merg
 ## Remaining Work for a Paper
 
 1. ~~**vLLM A/B under the same KV-bound workload**~~ — done (2026-09-13): vLLM 0.28.0 shows the healthy signature (TTFT p95 629→64.7 ms as cancel rate rises; cancel-to-KV p50 9 ms, 0 post-cancel iterations), matching both fixed SGLang arms at c40. The harm is a cancellation-propagation property, not SGLang-fix-specific.
-2. Harm surface mapping: cancel rate × KV pressure × model size — one figure ("when does cancellation propagation matter"), with repeated cells for variance.
+2. ~~Harm surface mapping~~ — done (2026-09-14): cancel rate × request rate (KV pressure) surface produced (`results/harm_surface_8b.png`), with 3 reps at r=12 for variance. Threshold structure + load-shedding cliff documented above. Model-size dimension remains two points (0.6B no-harm, 8B harm) — a third model would strengthen but is not blocking.
 3. ~~Verify official main~~ — done (2026-09-13): main @ f9fca05 matches the backport on all metrics; "upstream fix validates our diagnosis" is now empirically supported.
 4. Write-up assets already in hand: methodology (FIN/RST probe + 8-event trace hooks + lifecycle merge), root-cause case study with OBSERVED event chains, A/B table above.
+5. Optional defensive experiments (needs GPU, not blocking): instrumentation on/off control run; RST-vs-FIN scope check (all current results are FIN-scope; declare this in the paper if RST is not run).
 
 ## Artifacts
 
