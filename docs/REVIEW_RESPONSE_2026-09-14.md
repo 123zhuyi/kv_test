@@ -117,3 +117,112 @@ cancel rate"; "c00 provides a matched control"; "cancellation reduces
 remaining service demand" (not "free admission control"); "healthy
 signature" scoped to the resource-bound regime; disconnect-detection
 timing attributed to the background-task hook specifically.
+
+---
+
+# Round 2 (2026-09-14, still frozen-data-only)
+
+## R2.1 Instrumentation perturbation — accepted as P0, now a 3-way design
+
+Accepted. Next GPU session runs broken/fixed under three observation
+levels: (a) no audit hooks (CANCEL_AUDIT_TRACE unset; residual cost is
+one env-var check per call, <1 µs), (b) light hooks (cancel/abort/
+release events only — ~1.5k events/cell), (c) full hooks (current;
+~236k scheduler-iteration events/cell, ~150× the light volume). The
+queued-population gap (25.4% vs 0%) must reproduce under (a) before the
+magnitude numbers are claimed. Prior expectation from mechanism data:
+the 30.6 ms vs 10.8 s cancel-to-release contrast is independent of
+scheduler-loop logging, so the population shift should survive; the
+exact ratio (108×) may move.
+
+## R2.2 Contamination check v2 — wording fixed, strict boundaries clean
+
+The reviewer was right: round-1 code used `ts > next_start + 1.0` for
+scheduler iterations while the text claimed "after next start". v2
+(`code/check_intercase_contamination_v2.py`,
+`data/intercase_contamination_v2.csv`) reports three boundaries
+(0 ms / 100 ms / 1 s) for both KV_RELEASED and SCHEDULER_ITERATION:
+
+- **All 30 intra-cell case boundaries: 0 spill at every boundary,
+  including the strict 0 ms one** — the round-1 conclusion holds with
+  the corrected, stricter test.
+- **c40 → next-cell boundary** (server restart between cells): the gap
+  between a cell's last trace event and the next cell's first request is
+  79–85 s for all 9 chronological cell transitions (including the
+  broken→fixed arm switch) — a full server restart with fresh KV pool
+  separates cells; no cross-cell orphan inheritance is possible.
+
+## R2.3 Orphan KV-residency accounting — first resource numbers
+
+`code/analyze_orphan_kv.py`, `data/orphan_kv_8b.csv`. Per cancelled
+request, residency = KV_RELEASED − CLIENT_CANCEL_INIT (exact from
+traces; token footprint is the only estimated term, mean ≈ prompt+260
+tokens under linear decode growth, prompt≈25):
+
+| arm | case | residency p50 | orphan slot-s | orphan token-s (est) | share of KV-pool-time (est) |
+|---|---|---:|---:|---:|---:|
+| broken | r12 c10 | 11.0 s | 98 | 28k | 5.2% |
+| broken | r12 c20 | 10.7 s | 181 | 51k | 9.4% |
+| broken | r12 c40 | 10.8 s | 393 | **112k** | **20.9%** |
+| broken | r16 c40 | 10.5 s | 388 | 110k | 21.4% |
+| broken | r4 c40 | 10.4 s | 426 | 121k | 17.5% |
+| fixed | any c40 | **0.033 s** | 1.6 | ~430 | **0.1%** |
+
+Two directly quotable findings:
+
+1. **Residency is constant per orphan (~10.8 s ≈ the remaining 504
+   tokens' decode time) and independent of load** — only the orphan
+   *count* scales with cancel rate. The knob that turns waste into harm
+   is therefore whether the pool is saturated, not how long orphans
+   live.
+2. **The waste fraction alone does not determine harm**: r=4 c40 wastes
+   a comparable share (17.5%) with zero survivor impact (pool never
+   fills, usage ≤ 0.65), while r=12/r16 c40 waste ~21% with 25% of
+   survivors queued. Consistent with the capacity-boundary model; the
+   KV-budget sweep (GPU) remains the direct mediator test.
+
+## R2.4 SLO framing — attainment curves, not picked thresholds
+
+The CDF figure *is* the attainment curve P(TTFSE ≤ x) / P(E2E ≤ y);
+the 500 ms/1 s/15 s rows were illustrative slices. Text now reads:
+"tail-latency exceedance analyzed at multiple thresholds; full
+attainment curves in figures/survivor_cdf_r12.png; deployment SLOs to
+be pre-registered from workload targets in future runs." The claim
+"SLO-defined analysis done" is withdrawn.
+
+## R2.5 Statistical units — corrected
+
+- Round-1's "pooled over 3 reps" table reported *means of per-run
+  percentiles*; only the CDF pooled raw requests. Corrected labels
+  everywhere. Requests within a run share queue state, so **the run is
+  the unit of repetition**.
+- Per-run r=12 stats (the honest presentation):
+
+| arm | case | TTFSE p95 per run (ms) | mean ± sd | viol>500ms per run |
+|---|---|---|---|---|
+| broken | c00 | 6015 / 5542 / 5548 | 5702 ± 272 | 0.24 / 0.24 / 0.26 |
+| broken | c40 | 6818 / 6223 / 6579 | 6540 ± 299 | 0.254 / 0.237 / 0.271 |
+| fixed | c00 | 5549 / 5616 / 5548 | 5571 ± 39 | 0.24 / 0.24 / 0.24 |
+| fixed | c40 | 59.8 / 61.1 / 60.5 | 60.2 ± 0.7 | 0 / 0 / 0 |
+
+- Accepted: the 3 reps reused identical arrival seeds (per-case seeds
+  5000+idx), so they measure runtime jitter on one arrival trace, not
+  workload generalization. Next GPU round: ≥5 distinct seeds,
+  broken/fixed paired on the same seed (nested cancel sets).
+
+## R2.6 GPU minimal package (unchanged scope, now explicit)
+
+1. 3-way instrumentation A/B (none / light / full) — locks the magnitude.
+2. KV-budget sweep at fixed workload (mem-fraction 0.4/0.5/0.6/0.7) —
+   does the harm threshold move with the pool? The mediator test.
+3. ≥5-seed paired reps at r=12 — workload generalization.
+   (Plus if budget allows: 0.6B fixed arm; heterogeneous lengths.)
+
+## R2.7 Framing adopted
+
+Title scope: "LLM 推理服务中请求取消传播失效的测量与容量影响分析".
+Working thesis statement (from the review, adopted):
+cancellation-propagation delay retains already-worthless service demand;
+when its occupancy crosses the runtime's capacity boundary, normal
+requests form a *predictable* queued population, and the boundary is
+explainable from the resource budget and post-cancel remaining work.
